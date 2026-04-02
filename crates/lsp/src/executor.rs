@@ -39,7 +39,57 @@ pub async fn execute(request: &ParsedRequest, ctx: &VariableContext) -> Result<R
 
     if let Some(body) = &request.body {
         let body = variables::resolve(body, ctx);
-        req = req.body(body);
+
+        // Check if this is a multipart request
+        let content_type = request
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+
+        if content_type.contains("multipart/form-data") {
+            // Extract boundary from Content-Type header
+            let boundary = content_type
+                .split("boundary=")
+                .nth(1)
+                .unwrap_or("boundary")
+                .trim();
+            let parts = crate::parser::parse_multipart_body(&body, boundary);
+
+            let mut form = reqwest::multipart::Form::new();
+            for part in parts {
+                let field = match part.data {
+                    crate::parser::MultipartData::Text(text) => {
+                        let f = reqwest::multipart::Part::text(text);
+                        match part.filename {
+                            Some(fname) => f.file_name(fname),
+                            None => f,
+                        }
+                    }
+                    crate::parser::MultipartData::File(path) => {
+                        let file_bytes =
+                            std::fs::read(&path).map_err(|e| format!("read file '{path}': {e}"))?;
+                        let fname = part.filename.unwrap_or_else(|| {
+                            path.rsplit('/').next().unwrap_or("file").to_string()
+                        });
+                        reqwest::multipart::Part::bytes(file_bytes).file_name(fname)
+                    }
+                };
+                let field = if let Some(ct) = &part.content_type {
+                    match field.mime_str(ct) {
+                        Ok(f) => f,
+                        Err(_) => reqwest::multipart::Part::text(""),
+                    }
+                } else {
+                    field
+                };
+                form = form.part(part.field_name, field);
+            }
+            req = req.multipart(form);
+        } else {
+            req = req.body(body);
+        }
     }
 
     let start = Instant::now();

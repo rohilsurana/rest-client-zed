@@ -97,7 +97,7 @@ fn parse_section(
         }
         if trimmed.starts_with('#') || trimmed.starts_with("//") {
             if try_parse_annotation(trimmed).is_some() {
-                break; // This is an annotation, not a regular comment
+                break;
             }
             i += 1;
             continue;
@@ -146,30 +146,76 @@ fn parse_section(
     // Parse request line
     let request_line_num = start_line + i;
     let request_line = lines[i].trim();
-    let (method, url) = match parse_request_line(request_line) {
+    let (method, mut url) = match parse_request_line(request_line) {
         Some(r) => r,
         None => {
-            // Reset annotation scan - these weren't annotations before a request
-            // They might be regular comments
             let _ = annotation_start;
             return;
         }
     };
     i += 1;
 
-    // Parse headers
-    let mut headers = Vec::new();
+    // Multiline URL: continuation lines starting with whitespace that look like
+    // path segments (/...), query params (?... or &...), or fragments (#...)
     while i < lines.len() {
-        let line = lines[i].trim();
-        if line.is_empty() {
+        let line = lines[i];
+        if !line.starts_with(' ') && !line.starts_with('\t') {
             break;
         }
-        if let Some(pos) = line.find(':') {
-            let header_name = line[..pos].trim().to_string();
-            let header_value = line[pos + 1..].trim().to_string();
-            headers.push((header_name, header_value));
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
         }
-        i += 1;
+        // URL continuation: starts with /, ?, &, or #
+        if trimmed.starts_with('/')
+            || trimmed.starts_with('?')
+            || trimmed.starts_with('&')
+            || trimmed.starts_with('#')
+        {
+            url.push_str(trimmed);
+            i += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Parse headers (with multiline value support)
+    let mut headers = Vec::new();
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        if let Some(pos) = trimmed.find(':') {
+            let header_name = trimmed[..pos].trim().to_string();
+            let header_value = trimmed[pos + 1..].trim().to_string();
+            headers.push((header_name, header_value));
+            i += 1;
+
+            // Multiline header value: next lines starting with whitespace
+            // that don't look like a new header (no colon in non-indented position)
+            while i < lines.len() {
+                let next = lines[i];
+                if (next.starts_with(' ') || next.starts_with('\t')) && !next.trim().is_empty() {
+                    // Check it's not a new header (indented lines without ':' at start)
+                    let next_trimmed = next.trim();
+                    if next_trimmed.contains(':') && !next_trimmed.starts_with(':') {
+                        // Could be a new header with odd indentation, be conservative
+                        break;
+                    }
+                    if let Some(last) = headers.last_mut() {
+                        last.1.push(' ');
+                        last.1.push_str(next_trimmed);
+                    }
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+        } else {
+            i += 1;
+        }
     }
 
     // Skip blank line before body
@@ -271,6 +317,95 @@ pub fn find_request_at_line(file: &HttpFile, line: usize) -> Option<&ParsedReque
     file.requests.iter().rev().find(|r| r.line <= line)
 }
 
+/// Parse a multipart form-data body into individual parts for sending via reqwest.
+/// Returns a list of (field_name, filename, content_type, data) tuples.
+pub fn parse_multipart_body(body: &str, boundary: &str) -> Vec<MultipartPart> {
+    let mut parts = Vec::new();
+    let delimiter = format!("--{boundary}");
+    let _end_delimiter = format!("--{boundary}--");
+
+    let sections: Vec<&str> = body.split(&delimiter).collect();
+    for section in sections {
+        let section = section.trim();
+        if section.is_empty() || section == "--" || section.starts_with("--") {
+            continue;
+        }
+        // Remove trailing -- if this is the end delimiter
+        let section = section.strip_suffix("--").unwrap_or(section).trim();
+        if section.is_empty() {
+            continue;
+        }
+
+        // Split headers from body at blank line
+        let (header_part, body_part) = if let Some(pos) = section.find("\n\n") {
+            (&section[..pos], section[pos + 2..].trim())
+        } else if let Some(pos) = section.find("\r\n\r\n") {
+            (&section[..pos], section[pos + 4..].trim())
+        } else {
+            ("", section)
+        };
+
+        let mut field_name = None;
+        let mut filename = None;
+        let mut content_type = None;
+
+        for header_line in header_part.lines() {
+            let header_line = header_line.trim();
+            if let Some(rest) = header_line.strip_prefix("Content-Disposition:") {
+                let rest = rest.trim();
+                // Parse name="value" and filename="value"
+                for param in rest.split(';') {
+                    let param = param.trim();
+                    if let Some(val) = param.strip_prefix("name=") {
+                        field_name = Some(unquote(val));
+                    } else if let Some(val) = param.strip_prefix("filename=") {
+                        filename = Some(unquote(val));
+                    }
+                }
+            } else if let Some(rest) = header_line.strip_prefix("Content-Type:") {
+                content_type = Some(rest.trim().to_string());
+            }
+        }
+
+        let data = if let Some(path) = body_part.strip_prefix("< ") {
+            MultipartData::File(path.trim().to_string())
+        } else {
+            MultipartData::Text(body_part.to_string())
+        };
+
+        parts.push(MultipartPart {
+            field_name: field_name.unwrap_or_default(),
+            filename,
+            content_type,
+            data,
+        });
+    }
+
+    parts
+}
+
+fn unquote(s: &str) -> String {
+    s.trim()
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(s.trim())
+        .to_string()
+}
+
+#[derive(Debug, Clone)]
+pub struct MultipartPart {
+    pub field_name: String,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub data: MultipartData,
+}
+
+#[derive(Debug, Clone)]
+pub enum MultipartData {
+    Text(String),
+    File(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +494,78 @@ POST https://example.com/two
         let file = parse(input);
         assert_eq!(file.requests[0].line, 3);
         assert_eq!(file.requests[1].line, 7);
+    }
+
+    #[test]
+    fn test_multiline_url() {
+        let input = "\
+GET https://example.com
+    /api
+    /users
+    ?page=1
+    &limit=10
+Accept: application/json
+";
+        let file = parse(input);
+        assert_eq!(file.requests.len(), 1);
+        assert_eq!(
+            file.requests[0].url,
+            "https://example.com/api/users?page=1&limit=10"
+        );
+        assert_eq!(file.requests[0].headers.len(), 1);
+    }
+
+    #[test]
+    fn test_multiline_url_with_fragment() {
+        let input = "\
+GET https://example.com
+    /api
+    /docs
+    #section-2
+";
+        let file = parse(input);
+        assert_eq!(
+            file.requests[0].url,
+            "https://example.com/api/docs#section-2"
+        );
+    }
+
+    #[test]
+    fn test_multiline_header_value() {
+        let input = "\
+GET https://example.com
+Accept: text/html,
+    application/xhtml+xml,
+    application/xml;q=0.9
+";
+        let file = parse(input);
+        assert_eq!(file.requests[0].headers.len(), 1);
+        assert_eq!(
+            file.requests[0].headers[0].1,
+            "text/html, application/xhtml+xml, application/xml;q=0.9"
+        );
+    }
+
+    #[test]
+    fn test_multipart_body() {
+        let body = "\
+--boundary
+Content-Disposition: form-data; name=\"text\"
+
+Hello World
+--boundary
+Content-Disposition: form-data; name=\"file\"; filename=\"data.json\"
+Content-Type: application/json
+
+< ./data.json
+--boundary--";
+        let parts = parse_multipart_body(body, "boundary");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].field_name, "text");
+        assert!(parts[0].filename.is_none());
+        assert!(matches!(parts[0].data, MultipartData::Text(ref t) if t == "Hello World"));
+        assert_eq!(parts[1].field_name, "file");
+        assert_eq!(parts[1].filename.as_deref(), Some("data.json"));
+        assert!(matches!(parts[1].data, MultipartData::File(ref f) if f == "./data.json"));
     }
 }
