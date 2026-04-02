@@ -126,8 +126,6 @@ response_file="/tmp/rest-client-zed/response.http"
   "${curl_cmd[@]}" 2>&1
 } > "$response_file"
 
-cat "$response_file"
-
 if command -v zed &>/dev/null; then
   zed "$response_file"
 fi

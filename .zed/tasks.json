@@ -2,6 +2,8 @@
   {
     "label": "Send Request",
     "command": "./scripts/run-request.sh $ZED_FILE $ZED_ROW",
-    "tags": ["http-request"]
+    "tags": ["http-request"],
+    "reveal": "never",
+    "hide": "on_success"
   }
 ]
