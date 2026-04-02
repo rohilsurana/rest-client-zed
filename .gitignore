@@ -2,4 +2,7 @@
 **/target
 Cargo.lock
 **/Cargo.lock
+extension.wasm
+/grammars
 /tree-sitter-http-rest
+test.http
