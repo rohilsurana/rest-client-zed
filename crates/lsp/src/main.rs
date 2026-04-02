@@ -256,6 +256,7 @@ impl RestClientLsp {
         for (k, v) in env_vars {
             state.variable_ctx.variables.insert(k, v);
         }
+        state.variable_ctx.allowed_env_vars = state.settings.allowed_process_env_vars.clone();
     }
 
     fn sync_file_variables(&self, state: &mut State, text: &str) {

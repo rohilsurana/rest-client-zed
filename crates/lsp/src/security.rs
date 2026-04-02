@@ -124,31 +124,28 @@ fn extract_host(url: &str) -> Option<String> {
     }
 }
 
-/// Validate environment variable access. Returns an error if the variable name
-/// matches known sensitive patterns.
-pub fn validate_env_var(name: &str) -> Result<(), String> {
-    let sensitive_patterns = [
-        "SECRET",
-        "PASSWORD",
-        "PASSWD",
-        "TOKEN",
-        "KEY",
-        "CREDENTIAL",
-        "AUTH",
-        "PRIVATE",
-    ];
-
-    let upper = name.to_uppercase();
-    for pattern in &sensitive_patterns {
-        if upper.contains(pattern) {
-            return Err(format!(
-                "access to potentially sensitive environment variable '{name}' is blocked. \
-                 Use a .env file or Zed settings environment instead."
-            ));
-        }
+/// Validate environment variable access using an allowlist.
+/// If the allowlist is empty, all access is blocked by default.
+/// Configure allowed variables in .zed/settings.json:
+/// ```json
+/// { "rest-client": { "allowedProcessEnvVars": ["HOME", "PATH", "NODE_ENV"] } }
+/// ```
+pub fn validate_env_var(name: &str, allowed: &[String]) -> Result<(), String> {
+    if allowed.is_empty() {
+        return Err(format!(
+            "access to environment variable '{name}' is blocked. \
+             Add it to rest-client.allowedProcessEnvVars in .zed/settings.json to allow access."
+        ));
     }
 
-    Ok(())
+    if allowed.iter().any(|a| a == name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "access to environment variable '{name}' is not in the allowlist. \
+             Add it to rest-client.allowedProcessEnvVars in .zed/settings.json."
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -196,18 +193,24 @@ mod tests {
     }
 
     #[test]
-    fn test_sensitive_env_var_blocked() {
-        assert!(validate_env_var("AWS_SECRET_ACCESS_KEY").is_err());
-        assert!(validate_env_var("GITHUB_TOKEN").is_err());
-        assert!(validate_env_var("DB_PASSWORD").is_err());
-        assert!(validate_env_var("PRIVATE_KEY").is_err());
+    fn test_env_var_empty_allowlist_blocks_all() {
+        assert!(validate_env_var("HOME", &[]).is_err());
+        assert!(validate_env_var("PATH", &[]).is_err());
     }
 
     #[test]
-    fn test_safe_env_var_allowed() {
-        assert!(validate_env_var("HOME").is_ok());
-        assert!(validate_env_var("PATH").is_ok());
-        assert!(validate_env_var("API_HOST").is_ok());
-        assert!(validate_env_var("NODE_ENV").is_ok());
+    fn test_env_var_allowlist() {
+        let allowed = vec!["HOME".to_string(), "NODE_ENV".to_string()];
+        assert!(validate_env_var("HOME", &allowed).is_ok());
+        assert!(validate_env_var("NODE_ENV", &allowed).is_ok());
+        assert!(validate_env_var("AWS_SECRET_KEY", &allowed).is_err());
+        assert!(validate_env_var("PATH", &allowed).is_err());
+    }
+
+    #[test]
+    fn test_nested_path_traversal() {
+        let result = validate_file_path("data/some/../../../../../etc/passwd", "/workspace");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("traversal"));
     }
 }

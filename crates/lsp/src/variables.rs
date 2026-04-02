@@ -28,7 +28,7 @@ pub fn resolve(text: &str, ctx: &VariableContext) -> String {
 
 fn resolve_expression(expr: &str, ctx: &VariableContext) -> String {
     if let Some(sys) = expr.strip_prefix('$') {
-        return resolve_system_variable(sys);
+        return resolve_system_variable(sys, ctx);
     }
 
     // Request variable: requestName.response.body.$.jsonpath
@@ -47,7 +47,7 @@ fn resolve_expression(expr: &str, ctx: &VariableContext) -> String {
     String::new()
 }
 
-fn resolve_system_variable(expr: &str) -> String {
+fn resolve_system_variable(expr: &str, ctx: &VariableContext) -> String {
     let (name, args) = match expr.find([' ', '\t']) {
         Some(pos) => (expr[..pos].trim(), expr[pos..].trim()),
         None => (expr.trim(), ""),
@@ -66,7 +66,7 @@ fn resolve_system_variable(expr: &str) -> String {
         "localDatetime" => format_datetime(args, false),
         "dotenv" => resolve_dotenv(args),
         "processEnv" => {
-            if let Err(e) = crate::security::validate_env_var(args) {
+            if let Err(e) = crate::security::validate_env_var(args, &ctx.allowed_env_vars) {
                 eprintln!("\x1b[31m✗ {e}\x1b[0m");
                 return String::new();
             }
@@ -300,6 +300,7 @@ pub struct NamedResponse {
 pub struct VariableContext {
     pub variables: HashMap<String, String>,
     pub named_responses: HashMap<String, NamedResponse>,
+    pub allowed_env_vars: Vec<String>,
 }
 
 impl VariableContext {
@@ -307,6 +308,7 @@ impl VariableContext {
         Self {
             variables,
             named_responses: HashMap::new(),
+            allowed_env_vars: Vec::new(),
         }
     }
 
@@ -410,12 +412,22 @@ mod tests {
     }
 
     #[test]
-    fn test_process_env() {
+    fn test_process_env_allowed() {
         std::env::set_var("TEST_REST_CLIENT_VAR", "test_value");
-        let ctx = empty_ctx();
+        let mut ctx = empty_ctx();
+        ctx.allowed_env_vars = vec!["TEST_REST_CLIENT_VAR".to_string()];
         let result = resolve("{{$processEnv TEST_REST_CLIENT_VAR}}", &ctx);
         assert_eq!(result, "test_value");
         std::env::remove_var("TEST_REST_CLIENT_VAR");
+    }
+
+    #[test]
+    fn test_process_env_blocked() {
+        std::env::set_var("TEST_BLOCKED_VAR", "secret");
+        let ctx = empty_ctx();
+        let result = resolve("{{$processEnv TEST_BLOCKED_VAR}}", &ctx);
+        assert_eq!(result, ""); // Blocked — empty allowlist
+        std::env::remove_var("TEST_BLOCKED_VAR");
     }
 
     #[test]

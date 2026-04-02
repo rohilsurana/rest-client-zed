@@ -24,6 +24,8 @@ pub struct RestClientSettings {
     pub active_environment: Option<String>,
     #[serde(default)]
     pub environments: HashMap<String, HashMap<String, String>>,
+    #[serde(default)]
+    pub allowed_process_env_vars: Vec<String>,
 }
 
 impl RestClientSettings {
@@ -81,6 +83,7 @@ mod tests {
     fn test_resolved_variables_shared_only() {
         let settings = RestClientSettings {
             active_environment: None,
+            allowed_process_env_vars: vec![],
             environments: HashMap::from([(
                 "$shared".to_string(),
                 HashMap::from([("apiVersion".to_string(), "v1".to_string())]),
@@ -94,6 +97,7 @@ mod tests {
     fn test_resolved_variables_with_active_env() {
         let settings = RestClientSettings {
             active_environment: Some("dev".to_string()),
+            allowed_process_env_vars: vec![],
             environments: HashMap::from([
                 (
                     "$shared".to_string(),
@@ -124,6 +128,7 @@ mod tests {
     fn test_environment_names() {
         let settings = RestClientSettings {
             active_environment: None,
+            allowed_process_env_vars: vec![],
             environments: HashMap::from([
                 ("$shared".to_string(), HashMap::new()),
                 ("dev".to_string(), HashMap::new()),
