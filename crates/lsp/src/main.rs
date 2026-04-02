@@ -1,3 +1,4 @@
+mod environments;
 mod executor;
 mod formatter;
 mod handler;
@@ -13,6 +14,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use handler::{SharedState, State};
+
+const SWITCH_ENV_COMMAND: &str = "rest-client.switchEnvironment";
 
 struct RestClientLsp {
     client: Client,
@@ -42,7 +45,10 @@ impl LanguageServer for RestClientLsp {
                     ..Default::default()
                 }),
                 execute_command_provider: Some(ExecuteCommandOptions {
-                    commands: vec![handler::SEND_REQUEST_COMMAND.to_string()],
+                    commands: vec![
+                        handler::SEND_REQUEST_COMMAND.to_string(),
+                        SWITCH_ENV_COMMAND.to_string(),
+                    ],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -58,6 +64,8 @@ impl LanguageServer for RestClientLsp {
         self.client
             .log_message(MessageType::INFO, "rest-client-lsp initialized")
             .await;
+
+        self.refresh_settings().await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -88,6 +96,10 @@ impl LanguageServer for RestClientLsp {
             }
             self.publish_diagnostics(&uri, &text).await;
         }
+    }
+
+    async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
+        self.refresh_settings().await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -125,37 +137,108 @@ impl LanguageServer for RestClientLsp {
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
-        if params.command == handler::SEND_REQUEST_COMMAND {
-            if let (Some(uri_val), Some(line_val)) =
-                (params.arguments.first(), params.arguments.get(1))
-            {
-                let uri_str = uri_val.as_str().unwrap_or_default();
-                let line = line_val.as_u64().unwrap_or(0) as usize;
+        match params.command.as_str() {
+            cmd if cmd == handler::SEND_REQUEST_COMMAND => {
+                if let (Some(uri_val), Some(line_val)) =
+                    (params.arguments.first(), params.arguments.get(1))
+                {
+                    let uri_str = uri_val.as_str().unwrap_or_default();
+                    let line = line_val.as_u64().unwrap_or(0) as usize;
 
-                if let Ok(uri) = Url::parse(uri_str) {
-                    match handler::execute_request(&uri, line, &self.state).await {
-                        Ok(response) => {
-                            self.client.log_message(MessageType::INFO, &response).await;
-                            self.client
-                                .show_message(MessageType::INFO, "Request completed".to_string())
-                                .await;
-                            return Ok(Some(Value::String(response)));
-                        }
-                        Err(e) => {
-                            self.client
-                                .show_message(MessageType::ERROR, format!("Request failed: {e}"))
-                                .await;
-                            return Ok(Some(Value::String(e)));
+                    if let Ok(uri) = Url::parse(uri_str) {
+                        match handler::execute_request(&uri, line, &self.state).await {
+                            Ok(response) => {
+                                self.client.log_message(MessageType::INFO, &response).await;
+                                self.client
+                                    .show_message(
+                                        MessageType::INFO,
+                                        "Request completed".to_string(),
+                                    )
+                                    .await;
+                                return Ok(Some(Value::String(response)));
+                            }
+                            Err(e) => {
+                                self.client
+                                    .show_message(
+                                        MessageType::ERROR,
+                                        format!("Request failed: {e}"),
+                                    )
+                                    .await;
+                                return Ok(Some(Value::String(e)));
+                            }
                         }
                     }
                 }
             }
+            cmd if cmd == SWITCH_ENV_COMMAND => {
+                if let Some(env_name) = params.arguments.first().and_then(|v| v.as_str()) {
+                    let mut state = self.state.write().await;
+                    state.settings.active_environment = Some(env_name.to_string());
+                    self.apply_environment_variables(&mut state);
+
+                    self.client
+                        .log_message(
+                            MessageType::INFO,
+                            format!("Switched to environment: {env_name}"),
+                        )
+                        .await;
+                    return Ok(Some(Value::String(env_name.to_string())));
+                }
+            }
+            _ => {}
         }
         Ok(None)
     }
 }
 
 impl RestClientLsp {
+    async fn refresh_settings(&self) {
+        let config_item = ConfigurationItem {
+            scope_uri: None,
+            section: Some("rest-client".to_string()),
+        };
+
+        match self.client.configuration(vec![config_item]).await {
+            Ok(configs) => {
+                let json = Value::Array(configs);
+                let settings = environments::parse_settings(&json);
+
+                let env_name = {
+                    let mut state = self.state.write().await;
+                    state.settings = settings;
+                    self.apply_environment_variables(&mut state);
+                    state
+                        .settings
+                        .active_environment
+                        .clone()
+                        .unwrap_or_else(|| "none".to_string())
+                };
+
+                self.client
+                    .log_message(
+                        MessageType::INFO,
+                        format!("Loaded settings, active environment: {env_name}"),
+                    )
+                    .await;
+            }
+            Err(e) => {
+                self.client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("Failed to read settings: {e}"),
+                    )
+                    .await;
+            }
+        }
+    }
+
+    fn apply_environment_variables(&self, state: &mut State) {
+        let env_vars = state.settings.resolved_variables();
+        for (k, v) in env_vars {
+            state.variable_ctx.variables.insert(k, v);
+        }
+    }
+
     fn sync_file_variables(&self, state: &mut State, text: &str) {
         let file = parser::parse(text);
         for (k, v) in file.variables {

@@ -5,6 +5,7 @@ use serde_json::Value;
 use tokio::sync::RwLock;
 use tower_lsp::lsp_types::*;
 
+use crate::environments::RestClientSettings;
 use crate::executor;
 use crate::formatter;
 use crate::parser;
@@ -15,6 +16,7 @@ pub const SEND_REQUEST_COMMAND: &str = "rest-client.sendRequest";
 pub struct State {
     pub documents: HashMap<Url, String>,
     pub variable_ctx: VariableContext,
+    pub settings: RestClientSettings,
 }
 
 impl State {
@@ -22,6 +24,7 @@ impl State {
         Self {
             documents: HashMap::new(),
             variable_ctx: VariableContext::new(HashMap::new()),
+            settings: RestClientSettings::default(),
         }
     }
 }
