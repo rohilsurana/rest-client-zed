@@ -1,0 +1,6 @@
+name = "HTTP"
+grammar = "http"
+path_suffixes = ["http", "rest"]
+line_comments = ["# ", "// "]
+block_comment = ["/*", "*/"]
+tab_size = 2

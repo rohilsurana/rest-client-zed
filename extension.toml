@@ -1,0 +1,16 @@
+id = "rest-client"
+name = "REST Client"
+version = "0.1.0"
+schema_version = 1
+authors = ["Rohil Surana <https://github.com/rohilsurana>"]
+description = "REST Client for Zed — send HTTP requests from .http/.rest files"
+repository = "https://github.com/rohilsurana/rest-client-zed"
+
+[grammars.http]
+repository = "https://github.com/rohilsurana/tree-sitter-http-rest"
+rev = "33f93212e8095a80d1df601cd98080779d4b6572"
+path = "."
+
+[language_servers.rest-client-lsp]
+name = "REST Client LSP"
+languages = ["HTTP"]

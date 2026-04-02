@@ -1,0 +1,157 @@
+mod executor;
+mod formatter;
+mod handler;
+mod parser;
+
+use std::sync::Arc;
+
+use serde_json::Value;
+use tokio::sync::RwLock;
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer, LspService, Server};
+
+use handler::{SharedState, State};
+
+struct RestClientLsp {
+    client: Client,
+    state: SharedState,
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for RestClientLsp {
+    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                            include_text: Some(true),
+                        })),
+                        ..Default::default()
+                    },
+                )),
+                code_lens_provider: Some(CodeLensOptions {
+                    resolve_provider: Some(false),
+                }),
+                execute_command_provider: Some(ExecuteCommandOptions {
+                    commands: vec![handler::SEND_REQUEST_COMMAND.to_string()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            server_info: Some(ServerInfo {
+                name: "rest-client-lsp".to_string(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            }),
+        })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        self.client
+            .log_message(MessageType::INFO, "rest-client-lsp initialized")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        let text = params.text_document.text.clone();
+
+        {
+            let mut state = self.state.write().await;
+            state.documents.insert(uri.clone(), text.clone());
+        }
+
+        self.publish_diagnostics(&uri, &text).await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        if let Some(change) = params.content_changes.into_iter().last() {
+            let text = change.text;
+            {
+                let mut state = self.state.write().await;
+                state.documents.insert(uri.clone(), text.clone());
+            }
+            self.publish_diagnostics(&uri, &text).await;
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        let mut state = self.state.write().await;
+        state.documents.remove(&params.text_document.uri);
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
+        let uri = &params.text_document.uri;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let lenses = handler::code_lenses(uri, text);
+        Ok(Some(lenses))
+    }
+
+    async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
+        if params.command == handler::SEND_REQUEST_COMMAND {
+            if let (Some(uri_val), Some(line_val)) =
+                (params.arguments.first(), params.arguments.get(1))
+            {
+                let uri_str = uri_val.as_str().unwrap_or_default();
+                let line = line_val.as_u64().unwrap_or(0) as usize;
+
+                if let Ok(uri) = Url::parse(uri_str) {
+                    match handler::execute_request(&uri, line, &self.state).await {
+                        Ok(response) => {
+                            self.client
+                                .log_message(MessageType::INFO, &response)
+                                .await;
+                            self.client
+                                .show_message(MessageType::INFO, format!("Request completed"))
+                                .await;
+                            return Ok(Some(Value::String(response)));
+                        }
+                        Err(e) => {
+                            self.client
+                                .show_message(MessageType::ERROR, format!("Request failed: {e}"))
+                                .await;
+                            return Ok(Some(Value::String(e)));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl RestClientLsp {
+    async fn publish_diagnostics(&self, uri: &Url, text: &str) {
+        let diags = handler::diagnostics(text);
+        self.client
+            .publish_diagnostics(uri.clone(), diags, None)
+            .await;
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+
+    let state = Arc::new(RwLock::new(State::new()));
+
+    let (service, socket) = LspService::new(|client| RestClientLsp {
+        client,
+        state: state.clone(),
+    });
+    Server::new(stdin, stdout, socket).serve(service).await;
+}
