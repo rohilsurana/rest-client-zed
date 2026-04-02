@@ -307,36 +307,21 @@ async fn exec_request(file: &str, line: usize) -> i32 {
         }
     };
 
-    // Execute prerequisite named requests that this request depends on.
-    // Scan the request text for {{name.response...}} patterns and find
-    // the named requests that need to run first.
-    let deps = find_dependencies(&request, &parsed, &ctx);
-    for dep in &deps {
-        eprintln!(
-            "\x1b[36m→ Running prerequisite: {} {} ({})\x1b[0m",
-            dep.method,
-            variables::resolve(&dep.url, &ctx),
-            dep.name.as_deref().unwrap_or("unnamed")
-        );
-        match executor::execute(dep, &ctx).await {
-            Ok(response) => {
-                if let Some(name) = &dep.name {
-                    ctx.store_response(
-                        name,
-                        variables::NamedResponse {
-                            headers: response.headers,
-                            body: response.body,
-                        },
-                    );
-                }
-            }
-            Err(e) => {
-                eprintln!(
-                    "\x1b[31m✗ Prerequisite '{}' failed: {e}\x1b[0m",
-                    dep.name.as_deref().unwrap_or("unnamed")
-                );
-                return 1;
-            }
+    // Load cached named responses from previous executions (scoped to this file)
+    let cache_dir = std::env::temp_dir().join("rest-client-zed");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let file_hash = format!("{:x}", md5_hash(file));
+    let cache_path = cache_dir.join(format!("{file_hash}.responses.json"));
+    load_response_cache(&cache_path, &mut ctx);
+
+    // Check for unresolved dependencies and warn
+    let missing = find_missing_dependencies(&request, &ctx);
+    if !missing.is_empty() {
+        for name in &missing {
+            eprintln!(
+                "\x1b[33m⚠ Variable '{name}' has no cached response. \
+                 Run the '# @name {name}' request first.\x1b[0m"
+            );
         }
     }
 
@@ -379,13 +364,17 @@ async fn exec_request(file: &str, line: usize) -> i32 {
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response.body) {
                     if let Ok(pretty) = serde_json::to_string_pretty(&json) {
                         println!("{pretty}");
-                        return 0;
+                    } else {
+                        print!("{}", response.body);
                     }
+                } else {
+                    print!("{}", response.body);
                 }
+            } else {
+                print!("{}", response.body);
             }
-            print!("{}", response.body);
 
-            // Store named response for chaining
+            // Store named response for chaining (persisted to disk, scoped to file)
             if let Some(name) = &request.name {
                 ctx.store_response(
                     name,
@@ -393,6 +382,11 @@ async fn exec_request(file: &str, line: usize) -> i32 {
                         headers: response.headers,
                         body: response.body,
                     },
+                );
+                save_response_cache(&cache_path, &ctx);
+                eprintln!(
+                    "\x1b[32m✓ Stored response as '{name}' — \
+                     other requests can now use {{{{{name}.response.body.$.<path>}}}}\x1b[0m"
                 );
             }
 
@@ -405,16 +399,14 @@ async fn exec_request(file: &str, line: usize) -> i32 {
     }
 }
 
-/// Find named requests that the given request depends on via {{name.response...}} variables.
-fn find_dependencies(
+/// Find {{name.response...}} references that have no cached response yet.
+fn find_missing_dependencies(
     request: &parser::ParsedRequest,
-    file: &parser::HttpFile,
     ctx: &variables::VariableContext,
-) -> Vec<parser::ParsedRequest> {
-    let mut deps = Vec::new();
+) -> Vec<String> {
+    let mut missing = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
-    // Collect all text that might contain variable references
     let mut texts = vec![request.url.clone()];
     for (_, v) in &request.headers {
         texts.push(v.clone());
@@ -424,8 +416,6 @@ fn find_dependencies(
     }
 
     let all_text = texts.join(" ");
-
-    // Find {{name.response...}} patterns
     let mut rest = all_text.as_str();
     while let Some(start) = rest.find("{{") {
         let after = &rest[start + 2..];
@@ -438,15 +428,8 @@ fn find_dependencies(
                     && !seen.contains(dep_name)
                     && !ctx.named_responses.contains_key(dep_name)
                 {
-                    // Find the named request in the file
-                    if let Some(dep_req) = file
-                        .requests
-                        .iter()
-                        .find(|r| r.name.as_deref() == Some(dep_name))
-                    {
-                        seen.insert(dep_name.to_string());
-                        deps.push(dep_req.clone());
-                    }
+                    seen.insert(dep_name.to_string());
+                    missing.push(dep_name.to_string());
                 }
             }
             rest = &after[end + 2..];
@@ -455,5 +438,53 @@ fn find_dependencies(
         }
     }
 
-    deps
+    missing
+}
+
+fn load_response_cache(path: &std::path::Path, ctx: &mut variables::VariableContext) {
+    if let Ok(data) = std::fs::read_to_string(path) {
+        if let Ok(map) =
+            serde_json::from_str::<std::collections::HashMap<String, CachedResponse>>(&data)
+        {
+            for (name, cached) in map {
+                ctx.store_response(
+                    &name,
+                    variables::NamedResponse {
+                        headers: cached.headers,
+                        body: cached.body,
+                    },
+                );
+            }
+        }
+    }
+}
+
+fn save_response_cache(path: &std::path::Path, ctx: &variables::VariableContext) {
+    let mut map = std::collections::HashMap::new();
+    for (name, resp) in &ctx.named_responses {
+        map.insert(
+            name.clone(),
+            CachedResponse {
+                headers: resp.headers.clone(),
+                body: resp.body.clone(),
+            },
+        );
+    }
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedResponse {
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+fn md5_hash(input: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    hasher.finish()
 }
