@@ -34,8 +34,8 @@ pub async fn execute(
         let value = substitute_variables(value, variables);
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|e| format!("invalid header name '{name}': {e}"))?;
-        let val = HeaderValue::from_str(&value)
-            .map_err(|e| format!("invalid header value: {e}"))?;
+        let val =
+            HeaderValue::from_str(&value).map_err(|e| format!("invalid header value: {e}"))?;
         headers.insert(name, val);
     }
     req = req.headers(headers);
@@ -53,11 +53,7 @@ pub async fn execute(
     let elapsed_ms = start.elapsed().as_millis();
 
     let status = resp.status().as_u16();
-    let status_text = resp
-        .status()
-        .canonical_reason()
-        .unwrap_or("")
-        .to_string();
+    let status_text = resp.status().canonical_reason().unwrap_or("").to_string();
 
     let resp_headers: Vec<(String, String)> = resp
         .headers()

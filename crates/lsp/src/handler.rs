@@ -72,10 +72,7 @@ pub fn diagnostics(text: &str) -> Vec<Diagnostic> {
                     },
                     end: Position {
                         line: req.line as u32,
-                        character: lines
-                            .get(req.line)
-                            .map(|l| l.len() as u32)
-                            .unwrap_or(0),
+                        character: lines.get(req.line).map(|l| l.len() as u32).unwrap_or(0),
                     },
                 },
                 severity: Some(DiagnosticSeverity::ERROR),

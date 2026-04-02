@@ -111,11 +111,9 @@ impl LanguageServer for RestClientLsp {
                 if let Ok(uri) = Url::parse(uri_str) {
                     match handler::execute_request(&uri, line, &self.state).await {
                         Ok(response) => {
+                            self.client.log_message(MessageType::INFO, &response).await;
                             self.client
-                                .log_message(MessageType::INFO, &response)
-                                .await;
-                            self.client
-                                .show_message(MessageType::INFO, format!("Request completed"))
+                                .show_message(MessageType::INFO, "Request completed".to_string())
                                 .await;
                             return Ok(Some(Value::String(response)));
                         }

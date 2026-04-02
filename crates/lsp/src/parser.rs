@@ -7,6 +7,7 @@ pub struct HttpFile {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ParsedRequest {
     pub name: Option<String>,
     pub method: String,
@@ -24,7 +25,12 @@ pub fn parse(text: &str) -> HttpFile {
 
     let sections = split_sections(text);
     for section in sections {
-        parse_section(&section.text, section.start_line, &mut variables, &mut requests);
+        parse_section(
+            &section.text,
+            section.start_line,
+            &mut variables,
+            &mut requests,
+        );
     }
 
     HttpFile {
@@ -42,9 +48,7 @@ fn split_sections(text: &str) -> Vec<Section> {
     let mut sections = Vec::new();
     let mut current = String::new();
     let mut start_line = 0;
-    let mut line_num = 0;
-
-    for line in text.lines() {
+    for (line_num, line) in text.lines().enumerate() {
         if line.trim_start().starts_with("###") {
             if !current.is_empty() {
                 sections.push(Section {
@@ -61,7 +65,6 @@ fn split_sections(text: &str) -> Vec<Section> {
             current.push_str(line);
             current.push('\n');
         }
-        line_num += 1;
     }
 
     if !current.is_empty() {
@@ -173,13 +176,7 @@ fn parse_section(
 
     // Parse body (rest of section)
     let body = if i < lines.len() {
-        let body_text: String = lines[i..]
-            .iter()
-            .map(|l| *l)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim_end()
-            .to_string();
+        let body_text: String = lines[i..].to_vec().join("\n").trim_end().to_string();
         if body_text.is_empty() {
             None
         } else {
@@ -247,17 +244,10 @@ fn try_parse_annotation(line: &str) -> Option<(String, Option<String>)> {
     };
 
     let rest = rest.strip_prefix('@')?;
-    let annotations = [
-        "name",
-        "prompt",
-        "note",
-        "no-redirect",
-        "no-cookie-jar",
-    ];
+    let annotations = ["name", "prompt", "note", "no-redirect", "no-cookie-jar"];
 
     for ann in &annotations {
-        if rest.starts_with(ann) {
-            let after = &rest[ann.len()..];
+        if let Some(after) = rest.strip_prefix(ann) {
             if after.is_empty() || after.starts_with(' ') || after.starts_with('\t') {
                 let value = after.trim();
                 let value = if value.is_empty() {
@@ -274,10 +264,7 @@ fn try_parse_annotation(line: &str) -> Option<(String, Option<String>)> {
 }
 
 pub fn find_request_at_line(file: &HttpFile, line: usize) -> Option<&ParsedRequest> {
-    file.requests
-        .iter()
-        .rev()
-        .find(|r| r.line <= line)
+    file.requests.iter().rev().find(|r| r.line <= line)
 }
 
 #[cfg(test)]
@@ -307,7 +294,10 @@ Content-Type: application/json
         assert_eq!(file.requests[0].method, "POST");
         assert_eq!(file.requests[0].headers.len(), 1);
         assert_eq!(file.requests[0].headers[0].0, "Content-Type");
-        assert_eq!(file.requests[0].body.as_deref(), Some("{\"key\": \"value\"}"));
+        assert_eq!(
+            file.requests[0].body.as_deref(),
+            Some("{\"key\": \"value\"}")
+        );
     }
 
     #[test]

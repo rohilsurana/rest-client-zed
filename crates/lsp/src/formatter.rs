@@ -51,9 +51,7 @@ mod tests {
         let response = Response {
             status: 200,
             status_text: "OK".to_string(),
-            headers: vec![
-                ("content-type".to_string(), "application/json".to_string()),
-            ],
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
             body: r#"{"key":"value","num":42}"#.to_string(),
             elapsed_ms: 150,
         };
@@ -69,9 +67,7 @@ mod tests {
         let response = Response {
             status: 200,
             status_text: "OK".to_string(),
-            headers: vec![
-                ("content-type".to_string(), "text/plain".to_string()),
-            ],
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
             body: "Hello, World!".to_string(),
             elapsed_ms: 50,
         };
