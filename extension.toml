@@ -11,6 +11,16 @@ repository = "https://github.com/rohilsurana/tree-sitter-http-rest"
 rev = "33f93212e8095a80d1df601cd98080779d4b6572"
 path = "."
 
+[slash_commands.http-send]
+description = "Send an HTTP request"
+tooltip_text = "Send Request"
+requires_argument = true
+
+[slash_commands.http-to-curl]
+description = "Convert an HTTP request to cURL"
+tooltip_text = "Convert to cURL"
+requires_argument = true
+
 [language_servers.rest-client-lsp]
 name = "REST Client LSP"
 languages = ["HTTP"]
