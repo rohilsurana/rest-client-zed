@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage: run-request.sh <file> <line>
 # Extracts the HTTP request block containing the given line and executes it with curl.
-# Opens the full response in Zed as a new tab.
+# Writes response to <file>.response.http (open this in a split pane — it auto-reloads).
 
 FILE="$1"
 LINE="$2"
@@ -10,6 +10,12 @@ if [ -z "$FILE" ] || [ -z "$LINE" ]; then
   echo "Usage: run-request.sh <file> <line>"
   exit 1
 fi
+
+case "$FILE" in
+  *.http) RESPONSE_FILE="${FILE%.http}.response.http" ;;
+  *.rest) RESPONSE_FILE="${FILE%.rest}.response.http" ;;
+  *)      RESPONSE_FILE="${FILE}.response.http" ;;
+esac
 
 block_start=1
 block_end=$(wc -l < "$FILE")
@@ -61,7 +67,6 @@ while IFS= read -r line; do
     [[ "$trimmed" =~ ^# ]] && continue
     [[ "$trimmed" =~ ^// ]] && continue
     [[ "$trimmed" =~ ^@ ]] && continue
-
     if [[ "$trimmed" =~ ^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|CONNECT|TRACE)[[:space:]] ]]; then
       method="${trimmed%% *}"
       rest="${trimmed#* }"
@@ -76,9 +81,7 @@ while IFS= read -r line; do
       phase="body"
       continue
     fi
-    if [[ "$trimmed" =~ ^[A-Za-z0-9_-]+: ]]; then
-      headers+=("$trimmed")
-    fi
+    [[ "$trimmed" =~ ^[A-Za-z0-9_-]+: ]] && headers+=("$trimmed")
     continue
   fi
 
@@ -93,13 +96,12 @@ $line"
 done <<< "$block"
 
 if [ -z "$method" ] || [ -z "$url" ]; then
-  echo "No request found at line $LINE"
+  echo "No request found at line $LINE" > "$RESPONSE_FILE"
   exit 1
 fi
 
 url=$(substitute_vars "$url")
 
-# Build curl args array
 curl_cmd=(curl -s -i -w '\n---\nTime: %{time_total}s | Size: %{size_download} bytes\n' -X "$method")
 
 for h in "${headers[@]}"; do
@@ -117,15 +119,8 @@ fi
 
 curl_cmd+=("$url")
 
-mkdir -p /tmp/rest-client-zed
-response_file="/tmp/rest-client-zed/response.http"
-
 {
   echo "# $method $url"
   echo ""
   "${curl_cmd[@]}" 2>&1
-} > "$response_file"
-
-if command -v zed &>/dev/null; then
-  zed "$response_file"
-fi
+} > "$RESPONSE_FILE"
