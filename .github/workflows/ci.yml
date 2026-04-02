@@ -15,7 +15,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip1
-      - run: cargo build -p rest-client-extension --target wasm32-wasip1 --release
+      - run: cargo build --target wasm32-wasip1 --release
 
   build-lsp:
     name: Build LSP
@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build -p rest-client-lsp --release
+      - run: cd crates/lsp && cargo build --release
 
   test:
     name: Test
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
+      - run: cd crates/lsp && cargo test
 
   lint:
     name: Lint
@@ -43,4 +43,5 @@ jobs:
           components: clippy, rustfmt
           targets: wasm32-wasip1
       - run: cargo fmt --check
-      - run: cargo clippy -p rest-client-lsp -- -D warnings
+      - run: cd crates/lsp && cargo fmt --check
+      - run: cd crates/lsp && cargo clippy -- -D warnings

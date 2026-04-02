@@ -40,19 +40,19 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build -p rest-client-lsp --release --target ${{ matrix.target }}
+        run: cd crates/lsp && cargo build --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.asset }} ${{ matrix.binary }}
+          cd crates/lsp/target/${{ matrix.target }}/release
+          tar czf ../../../../../${{ matrix.asset }} ${{ matrix.binary }}
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary }}" -DestinationPath "${{ matrix.asset }}"
+          Compress-Archive -Path "crates/lsp/target/${{ matrix.target }}/release/${{ matrix.binary }}" -DestinationPath "${{ matrix.asset }}"
 
       - uses: actions/upload-artifact@v4
         with:
