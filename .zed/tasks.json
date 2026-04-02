@@ -9,29 +9,33 @@
   },
   {
     "label": "REST: Copy as cURL",
-    "command": "rest-client-lsp --to-curl $ZED_FILE $ZED_ROW",
-    "reveal": "always",
+    "command": "rest-client-lsp --to-curl $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied cURL to clipboard'",
+    "reveal": "never",
+    "hide": "on_success",
     "allow_concurrent_runs": false,
     "use_new_terminal": false
   },
   {
     "label": "REST: Generate Python",
-    "command": "rest-client-lsp --generate python $ZED_FILE $ZED_ROW",
-    "reveal": "always",
+    "command": "rest-client-lsp --generate python $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied Python code to clipboard'",
+    "reveal": "never",
+    "hide": "on_success",
     "allow_concurrent_runs": false,
     "use_new_terminal": false
   },
   {
     "label": "REST: Generate JavaScript",
-    "command": "rest-client-lsp --generate javascript $ZED_FILE $ZED_ROW",
-    "reveal": "always",
+    "command": "rest-client-lsp --generate javascript $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied JavaScript code to clipboard'",
+    "reveal": "never",
+    "hide": "on_success",
     "allow_concurrent_runs": false,
     "use_new_terminal": false
   },
   {
     "label": "REST: Generate Go",
-    "command": "rest-client-lsp --generate go $ZED_FILE $ZED_ROW",
-    "reveal": "always",
+    "command": "rest-client-lsp --generate go $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied Go code to clipboard'",
+    "reveal": "never",
+    "hide": "on_success",
     "allow_concurrent_runs": false,
     "use_new_terminal": false
   },
