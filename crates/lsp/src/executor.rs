@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use std::time::Instant;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::redirect::Policy;
 
 use crate::parser::ParsedRequest;
+use crate::variables::{self, VariableContext};
 
 #[derive(Debug, Clone)]
 pub struct Response {
@@ -15,11 +15,8 @@ pub struct Response {
     pub elapsed_ms: u128,
 }
 
-pub async fn execute(
-    request: &ParsedRequest,
-    variables: &HashMap<String, String>,
-) -> Result<Response, String> {
-    let url = substitute_variables(&request.url, variables);
+pub async fn execute(request: &ParsedRequest, ctx: &VariableContext) -> Result<Response, String> {
+    let url = variables::resolve(&request.url, ctx);
     let client = build_client(request)?;
 
     let method: reqwest::Method = request
@@ -31,7 +28,7 @@ pub async fn execute(
 
     let mut headers = HeaderMap::new();
     for (name, value) in &request.headers {
-        let value = substitute_variables(value, variables);
+        let value = variables::resolve(value, ctx);
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|e| format!("invalid header name '{name}': {e}"))?;
         let val =
@@ -41,7 +38,7 @@ pub async fn execute(
     req = req.headers(headers);
 
     if let Some(body) = &request.body {
-        let body = substitute_variables(body, variables);
+        let body = variables::resolve(body, ctx);
         req = req.body(body);
     }
 
@@ -88,13 +85,4 @@ fn build_client(request: &ParsedRequest) -> Result<reqwest::Client, String> {
         .redirect(redirect_policy)
         .build()
         .map_err(|e| format!("client build: {e}"))
-}
-
-fn substitute_variables(text: &str, variables: &HashMap<String, String>) -> String {
-    let mut result = text.to_string();
-    for (name, value) in variables {
-        let pattern = format!("{{{{{name}}}}}");
-        result = result.replace(&pattern, value);
-    }
-    result
 }

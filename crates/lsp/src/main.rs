@@ -2,6 +2,7 @@ mod executor;
 mod formatter;
 mod handler;
 mod parser;
+mod variables;
 
 use std::sync::Arc;
 
@@ -36,6 +37,10 @@ impl LanguageServer for RestClientLsp {
                 code_lens_provider: Some(CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec!["{".to_string()]),
+                    ..Default::default()
+                }),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![handler::SEND_REQUEST_COMMAND.to_string()],
                     ..Default::default()
@@ -66,6 +71,7 @@ impl LanguageServer for RestClientLsp {
         {
             let mut state = self.state.write().await;
             state.documents.insert(uri.clone(), text.clone());
+            self.sync_file_variables(&mut state, &text);
         }
 
         self.publish_diagnostics(&uri, &text).await;
@@ -78,6 +84,7 @@ impl LanguageServer for RestClientLsp {
             {
                 let mut state = self.state.write().await;
                 state.documents.insert(uri.clone(), text.clone());
+                self.sync_file_variables(&mut state, &text);
             }
             self.publish_diagnostics(&uri, &text).await;
         }
@@ -98,6 +105,23 @@ impl LanguageServer for RestClientLsp {
 
         let lenses = handler::code_lenses(uri, text);
         Ok(Some(lenses))
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let items = handler::completions_at(text, position, &state.variable_ctx);
+        if items.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(CompletionResponse::Array(items)))
+        }
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> Result<Option<Value>> {
@@ -132,6 +156,13 @@ impl LanguageServer for RestClientLsp {
 }
 
 impl RestClientLsp {
+    fn sync_file_variables(&self, state: &mut State, text: &str) {
+        let file = parser::parse(text);
+        for (k, v) in file.variables {
+            state.variable_ctx.variables.insert(k, v);
+        }
+    }
+
     async fn publish_diagnostics(&self, uri: &Url, text: &str) {
         let diags = handler::diagnostics(text);
         self.client
