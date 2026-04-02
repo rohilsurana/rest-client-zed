@@ -10,6 +10,7 @@ pub struct HttpFile {
 #[allow(dead_code)]
 pub struct ParsedRequest {
     pub name: Option<String>,
+    pub note: Option<String>,
     pub method: String,
     pub url: String,
     pub headers: Vec<(String, String)>,
@@ -117,6 +118,7 @@ fn parse_section(
 
     // Collect annotations
     let mut name = None;
+    let mut note = None;
     let mut no_redirect = false;
     let mut no_cookie_jar = false;
 
@@ -126,6 +128,7 @@ fn parse_section(
         if let Some(ann) = try_parse_annotation(trimmed) {
             match ann.0.as_str() {
                 "name" => name = ann.1,
+                "note" => note = ann.1,
                 "no-redirect" => no_redirect = true,
                 "no-cookie-jar" => no_cookie_jar = true,
                 _ => {}
@@ -188,6 +191,7 @@ fn parse_section(
 
     requests.push(ParsedRequest {
         name,
+        note,
         method,
         url,
         headers,

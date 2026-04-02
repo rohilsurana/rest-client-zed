@@ -307,12 +307,22 @@ async fn exec_request(file: &str, line: usize) -> i32 {
         }
     };
 
-    println!(
-        "# {} {}",
-        request.method,
-        variables::resolve(&request.url, &ctx)
-    );
+    let resolved_url = variables::resolve(&request.url, &ctx);
+    println!("# {} {}", request.method, resolved_url);
     println!();
+
+    if let Some(note) = &request.note {
+        eprintln!("\x1b[33m⚠ {note}\x1b[0m");
+        eprint!("Proceed? [y/N] ");
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_ok() {
+            let answer = input.trim().to_lowercase();
+            if answer != "y" && answer != "yes" {
+                println!("Request cancelled.");
+                return 0;
+            }
+        }
+    }
 
     match executor::execute(&request, &ctx).await {
         Ok(response) => {
