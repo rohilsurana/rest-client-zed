@@ -43,7 +43,8 @@ fn resolve_expression(expr: &str, ctx: &VariableContext) -> String {
         return resolve(val, ctx);
     }
 
-    format!("{{{{{expr}}}}}")
+    // Undefined variables resolve to empty string
+    String::new()
 }
 
 fn resolve_system_variable(expr: &str) -> String {
@@ -375,7 +376,7 @@ mod tests {
     #[test]
     fn test_unresolved_variable() {
         let ctx = empty_ctx();
-        assert_eq!(resolve("{{unknown}}", &ctx), "{{unknown}}");
+        assert_eq!(resolve("{{unknown}}", &ctx), "");
     }
 
     #[test]
