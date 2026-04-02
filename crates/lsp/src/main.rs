@@ -1,7 +1,11 @@
+mod auth;
+mod codegen;
+mod curl;
 mod environments;
 mod executor;
 mod formatter;
 mod handler;
+mod history;
 mod parser;
 mod variables;
 
@@ -272,11 +276,37 @@ impl RestClientLsp {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
 
-    // CLI mode: rest-client-lsp --exec <file> <line>
-    if args.len() >= 4 && args[1] == "--exec" {
-        let file = &args[2];
-        let line: usize = args[3].parse().unwrap_or(1);
-        std::process::exit(exec_request(file, line).await);
+    match args.get(1).map(|s| s.as_str()) {
+        // rest-client-lsp --exec <file> <line>
+        Some("--exec") if args.len() >= 4 => {
+            let file = &args[2];
+            let line: usize = args[3].parse().unwrap_or(1);
+            std::process::exit(exec_request(file, line).await);
+        }
+        // rest-client-lsp --to-curl <file> <line>
+        Some("--to-curl") if args.len() >= 4 => {
+            let file = &args[2];
+            let line: usize = args[3].parse().unwrap_or(1);
+            std::process::exit(cli_to_curl(file, line));
+        }
+        // rest-client-lsp --from-curl <curl_command>
+        Some("--from-curl") if args.len() >= 3 => {
+            let curl_cmd = args[2..].join(" ");
+            std::process::exit(cli_from_curl(&curl_cmd));
+        }
+        // rest-client-lsp --generate <language> <file> <line>
+        Some("--generate") if args.len() >= 5 => {
+            let language = &args[2];
+            let file = &args[3];
+            let line: usize = args[4].parse().unwrap_or(1);
+            std::process::exit(cli_generate(language, file, line));
+        }
+        // rest-client-lsp --history <file>
+        Some("--history") if args.len() >= 3 => {
+            let file = &args[2];
+            std::process::exit(cli_history(file));
+        }
+        _ => {}
     }
 
     // LSP mode (default)
@@ -304,13 +334,16 @@ async fn exec_request(file: &str, line: usize) -> i32 {
     let parsed = parser::parse(&text);
     let mut ctx = variables::VariableContext::new(parsed.variables.clone());
 
-    let request = match parser::find_request_at_line(&parsed, line) {
+    let mut request = match parser::find_request_at_line(&parsed, line) {
         Some(r) => r.clone(),
         None => {
             eprintln!("No request found at line {line}");
             return 1;
         }
     };
+
+    // Process auth headers (auto-encode Basic auth)
+    auth::process_auth_headers(&mut request.headers);
 
     // Load session-scoped named responses.
     // These are volatile: cleared when editor closes or extension reloads.
@@ -380,6 +413,21 @@ async fn exec_request(file: &str, line: usize) -> i32 {
             } else {
                 print!("{}", response.body);
             }
+
+            // Record in history
+            let history_path = cache_dir.join(format!("{file_hash}.history.json"));
+            let mut hist = history::load(&history_path);
+            hist.add(history::HistoryEntry {
+                method: request.method.clone(),
+                url: resolved_url.clone(),
+                status: response.status,
+                elapsed_ms: response.elapsed_ms,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+            });
+            history::save(&history_path, &hist);
 
             // Store named response for chaining (persisted to disk, scoped to file)
             if let Some(name) = &request.name {
@@ -506,4 +554,93 @@ fn md5_hash(input: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
     hasher.finish()
+}
+
+fn cli_to_curl(file: &str, line: usize) -> i32 {
+    let text = match std::fs::read_to_string(file) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            return 1;
+        }
+    };
+    let parsed = parser::parse(&text);
+    let ctx = variables::VariableContext::new(parsed.variables.clone());
+    let mut request = match parser::find_request_at_line(&parsed, line) {
+        Some(r) => r.clone(),
+        None => {
+            eprintln!("No request found at line {line}");
+            return 1;
+        }
+    };
+    // Resolve variables in the request before converting
+    request.url = variables::resolve(&request.url, &ctx);
+    for (_, value) in &mut request.headers {
+        *value = variables::resolve(value, &ctx);
+    }
+    if let Some(body) = &mut request.body {
+        *body = variables::resolve(body, &ctx);
+    }
+    auth::process_auth_headers(&mut request.headers);
+    println!("{}", curl::to_curl(&request));
+    0
+}
+
+fn cli_from_curl(curl_cmd: &str) -> i32 {
+    match curl::from_curl(curl_cmd) {
+        Ok(http) => {
+            print!("{http}");
+            0
+        }
+        Err(e) => {
+            eprintln!("Error: {e}");
+            1
+        }
+    }
+}
+
+fn cli_generate(language: &str, file: &str, line: usize) -> i32 {
+    let text = match std::fs::read_to_string(file) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            return 1;
+        }
+    };
+    let parsed = parser::parse(&text);
+    let ctx = variables::VariableContext::new(parsed.variables.clone());
+    let mut request = match parser::find_request_at_line(&parsed, line) {
+        Some(r) => r.clone(),
+        None => {
+            eprintln!("No request found at line {line}");
+            return 1;
+        }
+    };
+    request.url = variables::resolve(&request.url, &ctx);
+    for (_, value) in &mut request.headers {
+        *value = variables::resolve(value, &ctx);
+    }
+    if let Some(body) = &mut request.body {
+        *body = variables::resolve(body, &ctx);
+    }
+    auth::process_auth_headers(&mut request.headers);
+    match codegen::generate(&request, language) {
+        Ok(code) => {
+            print!("{code}");
+            0
+        }
+        Err(e) => {
+            eprintln!("Error: {e}");
+            1
+        }
+    }
+}
+
+fn cli_history(file: &str) -> i32 {
+    let cache_dir = std::env::temp_dir().join("rest-client-zed");
+    let file_hash = format!("{:x}", md5_hash(file));
+    let history_path = cache_dir.join(format!("{file_hash}.history.json"));
+    let hist = history::load(&history_path);
+    print!("{}", hist.format());
+    0
 }
