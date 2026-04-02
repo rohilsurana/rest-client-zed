@@ -307,6 +307,39 @@ async fn exec_request(file: &str, line: usize) -> i32 {
         }
     };
 
+    // Execute prerequisite named requests that this request depends on.
+    // Scan the request text for {{name.response...}} patterns and find
+    // the named requests that need to run first.
+    let deps = find_dependencies(&request, &parsed, &ctx);
+    for dep in &deps {
+        eprintln!(
+            "\x1b[36m→ Running prerequisite: {} {} ({})\x1b[0m",
+            dep.method,
+            variables::resolve(&dep.url, &ctx),
+            dep.name.as_deref().unwrap_or("unnamed")
+        );
+        match executor::execute(dep, &ctx).await {
+            Ok(response) => {
+                if let Some(name) = &dep.name {
+                    ctx.store_response(
+                        name,
+                        variables::NamedResponse {
+                            headers: response.headers,
+                            body: response.body,
+                        },
+                    );
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "\x1b[31m✗ Prerequisite '{}' failed: {e}\x1b[0m",
+                    dep.name.as_deref().unwrap_or("unnamed")
+                );
+                return 1;
+            }
+        }
+    }
+
     let resolved_url = variables::resolve(&request.url, &ctx);
     println!("# {} {}", request.method, resolved_url);
     println!();
@@ -370,4 +403,57 @@ async fn exec_request(file: &str, line: usize) -> i32 {
             1
         }
     }
+}
+
+/// Find named requests that the given request depends on via {{name.response...}} variables.
+fn find_dependencies(
+    request: &parser::ParsedRequest,
+    file: &parser::HttpFile,
+    ctx: &variables::VariableContext,
+) -> Vec<parser::ParsedRequest> {
+    let mut deps = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    // Collect all text that might contain variable references
+    let mut texts = vec![request.url.clone()];
+    for (_, v) in &request.headers {
+        texts.push(v.clone());
+    }
+    if let Some(body) = &request.body {
+        texts.push(body.clone());
+    }
+
+    let all_text = texts.join(" ");
+
+    // Find {{name.response...}} patterns
+    let mut rest = all_text.as_str();
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("}}") {
+            let expr = after[..end].trim();
+            if expr.contains(".response.") || expr.contains(".request.") {
+                let dep_name = expr.split('.').next().unwrap_or("");
+                if !dep_name.is_empty()
+                    && !dep_name.starts_with('$')
+                    && !seen.contains(dep_name)
+                    && !ctx.named_responses.contains_key(dep_name)
+                {
+                    // Find the named request in the file
+                    if let Some(dep_req) = file
+                        .requests
+                        .iter()
+                        .find(|r| r.name.as_deref() == Some(dep_name))
+                    {
+                        seen.insert(dep_name.to_string());
+                        deps.push(dep_req.clone());
+                    }
+                }
+            }
+            rest = &after[end + 2..];
+        } else {
+            break;
+        }
+    }
+
+    deps
 }
