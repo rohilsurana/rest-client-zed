@@ -148,13 +148,7 @@ impl LanguageServer for RestClientLsp {
                     if let Ok(uri) = Url::parse(uri_str) {
                         match handler::execute_request(&uri, line, &self.state).await {
                             Ok(response) => {
-                                self.client.log_message(MessageType::INFO, &response).await;
-                                self.client
-                                    .show_message(
-                                        MessageType::INFO,
-                                        "Request completed".to_string(),
-                                    )
-                                    .await;
+                                self.show_response(&response).await;
                                 return Ok(Some(Value::String(response)));
                             }
                             Err(e) => {
@@ -192,6 +186,25 @@ impl LanguageServer for RestClientLsp {
 }
 
 impl RestClientLsp {
+    async fn show_response(&self, response: &str) {
+        let dir = std::env::temp_dir().join("rest-client-zed");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("response.http");
+        if std::fs::write(&path, response).is_ok() {
+            if let Ok(uri) = Url::from_file_path(&path) {
+                let _ = self
+                    .client
+                    .show_document(ShowDocumentParams {
+                        uri,
+                        external: Some(false),
+                        take_focus: Some(true),
+                        selection: None,
+                    })
+                    .await;
+            }
+        }
+    }
+
     async fn refresh_settings(&self) {
         let config_item = ConfigurationItem {
             scope_uri: None,

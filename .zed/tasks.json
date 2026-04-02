@@ -1,0 +1,8 @@
+[
+  {
+    "label": "Send Request",
+    "command": "./scripts/run-request.sh",
+    "args": ["$ZED_FILE", "$ZED_ROW"],
+    "tags": ["http-request"]
+  }
+]
