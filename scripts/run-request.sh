@@ -123,9 +123,7 @@ curl_cmd+=("$url")
   "${curl_cmd[@]}" 2>&1
 } > "$RESPONSE_FILE"
 
-# Open in Zed only if it's not already open (avoids duplicate tabs)
+# Open in Zed using --add (reuses tab if same absolute path is already open)
 if command -v zed &>/dev/null; then
-  if ! lsof -c Zed 2>/dev/null | grep -q "response.http"; then
-    zed "$RESPONSE_FILE"
-  fi
+  zed --add "$RESPONSE_FILE"
 fi

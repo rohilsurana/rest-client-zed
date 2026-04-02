@@ -190,19 +190,15 @@ impl RestClientLsp {
         let dir = std::env::temp_dir().join("rest-client-zed");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("response.http");
-        if std::fs::write(&path, response).is_ok() {
-            if let Ok(uri) = Url::from_file_path(&path) {
-                let _ = self
-                    .client
-                    .show_document(ShowDocumentParams {
-                        uri,
-                        external: Some(false),
-                        take_focus: Some(true),
-                        selection: None,
-                    })
-                    .await;
-            }
-        }
+        let _ = std::fs::write(&path, response);
+
+        // Zed doesn't support window/showDocument for extensions.
+        // Spawn `zed --add` to open the response file in the current workspace.
+        // Zed reuses the tab if the same absolute path is already open.
+        let _ = std::process::Command::new("zed")
+            .arg("--add")
+            .arg(&path)
+            .spawn();
     }
 
     async fn refresh_settings(&self) {
