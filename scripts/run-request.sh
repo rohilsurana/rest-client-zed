@@ -11,11 +11,9 @@ if [ -z "$FILE" ] || [ -z "$LINE" ]; then
   exit 1
 fi
 
-case "$FILE" in
-  *.http) RESPONSE_FILE="${FILE%.http}.response.http" ;;
-  *.rest) RESPONSE_FILE="${FILE%.rest}.response.http" ;;
-  *)      RESPONSE_FILE="${FILE}.response.http" ;;
-esac
+RESPONSE_DIR="/tmp/rest-client-zed"
+mkdir -p "$RESPONSE_DIR"
+RESPONSE_FILE="${RESPONSE_DIR}/response.http"
 
 block_start=1
 block_end=$(wc -l < "$FILE")
