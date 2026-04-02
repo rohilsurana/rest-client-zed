@@ -84,7 +84,8 @@ impl RestClientExtension {
             .find(|a| a.name == asset_name)
             .ok_or_else(|| format!("no asset found: {asset_name}"))?;
 
-        let version_dir = format!("rest-client-lsp-{}", release.version);
+        let version = release.version.strip_prefix("lsp-").unwrap_or(&release.version);
+        let version_dir = format!("rest-client-lsp-{version}");
         let binary_name = if platform == zed::Os::Windows {
             format!("{LSP_BINARY}.exe")
         } else {
