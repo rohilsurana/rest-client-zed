@@ -66,9 +66,14 @@ impl LanguageServer for RestClientLsp {
             .await;
 
         self.refresh_settings().await;
+
+        // Clear session cache on LSP start (new session = fresh state)
+        clear_session_cache();
     }
 
     async fn shutdown(&self) -> Result<()> {
+        // Clear session cache on LSP shutdown
+        clear_session_cache();
         Ok(())
     }
 
@@ -307,7 +312,9 @@ async fn exec_request(file: &str, line: usize) -> i32 {
         }
     };
 
-    // Load cached named responses from previous executions (scoped to this file)
+    // Load session-scoped named responses.
+    // These are volatile: cleared when editor closes or extension reloads.
+    // The LSP manages the session file lifecycle.
     let cache_dir = std::env::temp_dir().join("rest-client-zed");
     let _ = std::fs::create_dir_all(&cache_dir);
     let file_hash = format!("{:x}", md5_hash(file));
@@ -479,6 +486,18 @@ fn save_response_cache(path: &std::path::Path, ctx: &variables::VariableContext)
 struct CachedResponse {
     headers: Vec<(String, String)>,
     body: String,
+}
+
+fn clear_session_cache() {
+    let cache_dir = std::env::temp_dir().join("rest-client-zed");
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
 }
 
 fn md5_hash(input: &str) -> u64 {
