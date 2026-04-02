@@ -44,4 +44,11 @@
 (file_reference
   path: (file_path) @string.special)
 
+(url_continuation
+  (url_segment) @string.special)
+
+(header_continuation
+  value: (header_value
+    (header_value_segment) @string))
+
 (body_content) @string

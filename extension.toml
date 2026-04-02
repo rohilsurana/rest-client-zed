@@ -8,7 +8,7 @@ repository = "https://github.com/rohilsurana/rest-client-zed"
 
 [grammars.http]
 repository = "https://github.com/rohilsurana/tree-sitter-http-rest"
-rev = "33f93212e8095a80d1df601cd98080779d4b6572"
+rev = "a05ca3746690b61b1b02782156c186ab3cf2ebe4"
 path = "."
 
 [slash_commands.http-send]
