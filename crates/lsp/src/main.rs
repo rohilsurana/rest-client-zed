@@ -265,6 +265,16 @@ impl RestClientLsp {
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // CLI mode: rest-client-lsp --exec <file> <line>
+    if args.len() >= 4 && args[1] == "--exec" {
+        let file = &args[2];
+        let line: usize = args[3].parse().unwrap_or(1);
+        std::process::exit(exec_request(file, line).await);
+    }
+
+    // LSP mode (default)
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
@@ -275,4 +285,79 @@ async fn main() {
         state: state.clone(),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
+}
+
+async fn exec_request(file: &str, line: usize) -> i32 {
+    let text = match std::fs::read_to_string(file) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            return 1;
+        }
+    };
+
+    let parsed = parser::parse(&text);
+    let mut ctx = variables::VariableContext::new(parsed.variables.clone());
+
+    let request = match parser::find_request_at_line(&parsed, line) {
+        Some(r) => r.clone(),
+        None => {
+            eprintln!("No request found at line {line}");
+            return 1;
+        }
+    };
+
+    println!(
+        "# {} {}",
+        request.method,
+        variables::resolve(&request.url, &ctx)
+    );
+    println!();
+
+    match executor::execute(&request, &ctx).await {
+        Ok(response) => {
+            println!("HTTP {} {}", response.status, response.status_text);
+            println!("Time: {}ms", response.elapsed_ms);
+            println!();
+            for (name, value) in &response.headers {
+                println!("{name}: {value}");
+            }
+            println!();
+
+            // Pretty-print JSON bodies
+            let content_type = response
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("");
+
+            if content_type.contains("json") {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response.body) {
+                    if let Ok(pretty) = serde_json::to_string_pretty(&json) {
+                        println!("{pretty}");
+                        return 0;
+                    }
+                }
+            }
+            print!("{}", response.body);
+
+            // Store named response for chaining
+            if let Some(name) = &request.name {
+                ctx.store_response(
+                    name,
+                    variables::NamedResponse {
+                        headers: response.headers,
+                        body: response.body,
+                    },
+                );
+            }
+
+            0
+        }
+        Err(e) => {
+            eprintln!("Request failed: {e}");
+            1
+        }
+    }
 }

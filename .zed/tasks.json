@@ -1,7 +1,7 @@
 [
   {
     "label": "Send Request",
-    "command": "./scripts/run-request.sh $ZED_FILE $ZED_ROW",
+    "command": "rest-client-lsp --exec $ZED_FILE $ZED_ROW",
     "tags": ["http-request"],
     "reveal": "always",
     "allow_concurrent_runs": false,
