@@ -7,6 +7,7 @@ mod formatter;
 mod handler;
 mod history;
 mod parser;
+mod security;
 mod variables;
 
 use std::sync::Arc;

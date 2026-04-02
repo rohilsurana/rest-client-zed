@@ -17,6 +17,12 @@ pub struct Response {
 
 pub async fn execute(request: &ParsedRequest, ctx: &VariableContext) -> Result<Response, String> {
     let url = variables::resolve(&request.url, ctx);
+
+    // Check for requests targeting internal/private networks
+    if let Some(warning) = crate::security::check_url_safety(&url) {
+        eprintln!("\x1b[33m⚠ Security: {warning}\x1b[0m");
+    }
+
     let client = build_client(request)?;
 
     let method: reqwest::Method = request
@@ -68,8 +74,14 @@ pub async fn execute(request: &ParsedRequest, ctx: &VariableContext) -> Result<R
                         }
                     }
                     crate::parser::MultipartData::File(path) => {
-                        let file_bytes =
-                            std::fs::read(&path).map_err(|e| format!("read file '{path}': {e}"))?;
+                        // Validate file path to prevent path traversal
+                        let workspace = std::env::current_dir()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                        let safe_path = crate::security::validate_file_path(&path, &workspace)?;
+                        let file_bytes = std::fs::read(&safe_path)
+                            .map_err(|e| format!("read file '{path}': {e}"))?;
                         let fname = part.filename.unwrap_or_else(|| {
                             path.rsplit('/').next().unwrap_or("file").to_string()
                         });

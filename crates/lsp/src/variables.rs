@@ -65,7 +65,13 @@ fn resolve_system_variable(expr: &str) -> String {
         "datetime" => format_datetime(args, true),
         "localDatetime" => format_datetime(args, false),
         "dotenv" => resolve_dotenv(args),
-        "processEnv" => std::env::var(args).unwrap_or_default(),
+        "processEnv" => {
+            if let Err(e) = crate::security::validate_env_var(args) {
+                eprintln!("\x1b[31m✗ {e}\x1b[0m");
+                return String::new();
+            }
+            std::env::var(args).unwrap_or_default()
+        }
         _ => format!("{{{{${expr}}}}}"),
     }
 }
