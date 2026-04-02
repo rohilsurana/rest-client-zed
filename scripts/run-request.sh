@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Usage: run-request.sh <file> <line>
 # Extracts the HTTP request block containing the given line and executes it with curl.
-# Writes response to <file>.response.http (open this in a split pane — it auto-reloads).
 
 FILE="$1"
 LINE="$2"
@@ -10,10 +9,6 @@ if [ -z "$FILE" ] || [ -z "$LINE" ]; then
   echo "Usage: run-request.sh <file> <line>"
   exit 1
 fi
-
-RESPONSE_DIR="/tmp/rest-client-zed"
-mkdir -p "$RESPONSE_DIR"
-RESPONSE_FILE="${RESPONSE_DIR}/response.http"
 
 block_start=1
 block_end=$(wc -l < "$FILE")
@@ -94,7 +89,7 @@ $line"
 done <<< "$block"
 
 if [ -z "$method" ] || [ -z "$url" ]; then
-  echo "No request found at line $LINE" > "$RESPONSE_FILE"
+  echo "No request found at line $LINE"
   exit 1
 fi
 
@@ -117,13 +112,6 @@ fi
 
 curl_cmd+=("$url")
 
-{
-  echo "# $method $url"
-  echo ""
-  "${curl_cmd[@]}" 2>&1
-} > "$RESPONSE_FILE"
-
-# Open in Zed using --add (reuses tab if same absolute path is already open)
-if command -v zed &>/dev/null; then
-  zed --add "$RESPONSE_FILE"
-fi
+echo "# $method $url"
+echo ""
+"${curl_cmd[@]}" 2>&1
