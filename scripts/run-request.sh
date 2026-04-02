@@ -123,6 +123,4 @@ curl_cmd+=("$url")
   "${curl_cmd[@]}" 2>&1
 } > "$RESPONSE_FILE"
 
-if command -v zed &>/dev/null; then
-  zed "$RESPONSE_FILE"
-fi
+echo "Response written to $RESPONSE_FILE"
