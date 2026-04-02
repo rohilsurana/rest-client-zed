@@ -362,6 +362,42 @@ Our extension: custom grammar for full `.http` syntax coverage, native LSP for r
 | **v0.3.0** | 8-9 | Variables, environments, request chaining, completions |
 | **v0.4.0** | 10-11 | cURL import/export, history, codegen, auth helpers |
 
+## Backlog
+
+### Security (Medium priority)
+
+- [ ] Response cache in `/tmp` — move to per-user dir with 0700 permissions
+- [ ] Remove `scripts/run-request.sh` — replaced by `--exec` CLI mode, shell script is redundant
+- [ ] Dotenv reads from CWD — resolve relative to workspace root, warn when sourced from project
+- [ ] Add SHA256 checksum verification for LSP binary downloads
+- [ ] Weak UUID PRNG — switch to `getrandom` crate for cryptographic randomness
+- [ ] Add recursion depth limit to variable resolution (prevent stack overflow on circular refs)
+- [ ] Set cache file permissions to 0600 explicitly
+
+### Spec Compliance (Low priority)
+
+- [ ] Response handler (`> {% script %}`) — JS handler after response
+- [ ] Response reference (`<> previous-response.json`) — saved response file comparison
+- [ ] Origin-form URLs (`/api/users` without host, requires Host header)
+- [ ] Asterisk-form (`OPTIONS *`) — server-wide OPTIONS
+- [ ] URL encoding — encode non-ASCII, avoid double-encoding already-encoded symbols
+- [ ] Body whitespace trimming — trim inline body, preserve file reference body
+- [ ] Fragment stripping — parse `#fragment` but don't send with request
+
+### UX Improvements
+
+- [ ] Investigate Zed code lens support for extensions (currently not rendering)
+- [ ] Response display in split pane (blocked by Zed lacking `window/showDocument` and tab dedup)
+- [ ] Command palette integration (blocked by Zed not exposing extension commands to palette)
+- [ ] Syntax highlighting for response bodies (JSON, XML) in terminal output
+
+### Publishing
+
+- [ ] Tag `lsp-v0.2.0` — publish new LSP binaries with all features
+- [ ] Set up extension release workflow (`huacnlee/zed-extension-action`)
+- [ ] Fork `zed-industries/extensions` to personal account
+- [ ] Submit PR to Zed extensions index
+
 ## Notes
 
 - The custom tree-sitter grammar is the foundation — invest time getting it right in Phase 2.
