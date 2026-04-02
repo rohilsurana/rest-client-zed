@@ -45,8 +45,13 @@ done < "$FILE"
 
 substitute_vars() {
   local text="$1"
-  for i in "${!var_names[@]}"; do
-    text="${text//\{\{${var_names[$i]}\}\}/${var_values[$i]}}"
+  local prev=""
+  # Loop until no more substitutions (handles nested variables)
+  while [ "$text" != "$prev" ]; do
+    prev="$text"
+    for i in "${!var_names[@]}"; do
+      text="${text//\{\{${var_names[$i]}\}\}/${var_values[$i]}}"
+    done
   done
   printf '%s' "$text"
 }
