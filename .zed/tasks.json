@@ -1,7 +1,7 @@
 [
   {
     "label": "Send Request",
-    "command": "rest-client-lsp --exec $ZED_FILE $ZED_ROW",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first (.http or .rest)' && exit 1; rest-client-lsp --exec \"$ZED_FILE\" $ZED_ROW",
     "tags": ["http-request"],
     "reveal": "always",
     "allow_concurrent_runs": false,
@@ -9,7 +9,7 @@
   },
   {
     "label": "REST: Copy as cURL",
-    "command": "rest-client-lsp --to-curl $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied cURL to clipboard'",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first' && exit 1; rest-client-lsp --to-curl \"$ZED_FILE\" $ZED_ROW | pbcopy && echo 'Copied cURL to clipboard'",
     "reveal": "never",
     "hide": "on_success",
     "allow_concurrent_runs": false,
@@ -17,7 +17,7 @@
   },
   {
     "label": "REST: Generate Python",
-    "command": "rest-client-lsp --generate python $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied Python code to clipboard'",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first' && exit 1; rest-client-lsp --generate python \"$ZED_FILE\" $ZED_ROW | pbcopy && echo 'Copied Python code to clipboard'",
     "reveal": "never",
     "hide": "on_success",
     "allow_concurrent_runs": false,
@@ -25,7 +25,7 @@
   },
   {
     "label": "REST: Generate JavaScript",
-    "command": "rest-client-lsp --generate javascript $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied JavaScript code to clipboard'",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first' && exit 1; rest-client-lsp --generate javascript \"$ZED_FILE\" $ZED_ROW | pbcopy && echo 'Copied JavaScript code to clipboard'",
     "reveal": "never",
     "hide": "on_success",
     "allow_concurrent_runs": false,
@@ -33,7 +33,7 @@
   },
   {
     "label": "REST: Generate Go",
-    "command": "rest-client-lsp --generate go $ZED_FILE $ZED_ROW | pbcopy && echo 'Copied Go code to clipboard'",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first' && exit 1; rest-client-lsp --generate go \"$ZED_FILE\" $ZED_ROW | pbcopy && echo 'Copied Go code to clipboard'",
     "reveal": "never",
     "hide": "on_success",
     "allow_concurrent_runs": false,
@@ -41,7 +41,7 @@
   },
   {
     "label": "REST: Request History",
-    "command": "rest-client-lsp --history $ZED_FILE",
+    "command": "[ -z \"$ZED_FILE\" ] && echo 'Save the file first' && exit 1; rest-client-lsp --history \"$ZED_FILE\"",
     "reveal": "always",
     "allow_concurrent_runs": false,
     "use_new_terminal": false
