@@ -117,18 +117,12 @@ fi
 
 curl_cmd+=("$url")
 
-# Check if response file is already open in Zed (by checking if it exists and has a reader)
-FIRST_RUN=false
-if [ ! -f "$RESPONSE_FILE" ]; then
-  FIRST_RUN=true
-fi
-
 {
   echo "# $method $url"
   echo ""
   "${curl_cmd[@]}" 2>&1
 } > "$RESPONSE_FILE"
 
-if [ "$FIRST_RUN" = true ] && command -v zed &>/dev/null; then
+if command -v zed &>/dev/null; then
   zed "$RESPONSE_FILE"
 fi
