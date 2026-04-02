@@ -93,6 +93,124 @@ pub fn diagnostics(text: &str) -> Vec<Diagnostic> {
     diags
 }
 
+/// Find the definition location of a variable or named request under the cursor.
+pub fn goto_definition(uri: &Url, text: &str, position: Position) -> Option<Location> {
+    let var_name = extract_variable_at(text, position)?;
+    let lines: Vec<&str> = text.lines().collect();
+
+    // Check for named request reference (e.g., "login" from "login.response.body...")
+    let base_name = var_name.split('.').next().unwrap_or(&var_name);
+
+    // Look for @name annotation
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix('#') {
+            let rest = rest.trim();
+            if let Some(rest) = rest.strip_prefix("@name") {
+                let name = rest.trim();
+                if name == base_name {
+                    return Some(Location {
+                        uri: uri.clone(),
+                        range: Range {
+                            start: Position {
+                                line: i as u32,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: i as u32,
+                                character: line.len() as u32,
+                            },
+                        },
+                    });
+                }
+            }
+        }
+    }
+
+    // Look for file variable (@var = value)
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix('@') {
+            if let Some(eq_pos) = rest.find('=') {
+                let name = rest[..eq_pos].trim();
+                if name == base_name {
+                    return Some(Location {
+                        uri: uri.clone(),
+                        range: Range {
+                            start: Position {
+                                line: i as u32,
+                                character: 0,
+                            },
+                            end: Position {
+                                line: i as u32,
+                                character: line.len() as u32,
+                            },
+                        },
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Show the resolved value of a variable on hover.
+pub fn hover_at(text: &str, position: Position, ctx: &VariableContext) -> Option<Hover> {
+    let var_name = extract_variable_at(text, position)?;
+    let resolved = variables::resolve(&format!("{{{{{var_name}}}}}"), ctx);
+
+    let display = if resolved.is_empty() {
+        format!("`{var_name}` — *undefined*")
+    } else {
+        format!("`{var_name}` = `{resolved}`")
+    };
+
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: display,
+        }),
+        range: None,
+    })
+}
+
+/// Extract the variable name under the cursor if inside {{ }}.
+fn extract_variable_at(text: &str, position: Position) -> Option<String> {
+    let lines: Vec<&str> = text.lines().collect();
+    let line_idx = position.line as usize;
+    if line_idx >= lines.len() {
+        return None;
+    }
+
+    let line = lines[line_idx];
+    let col = position.character as usize;
+
+    // Find {{ before cursor
+    let before = if col <= line.len() {
+        &line[..col]
+    } else {
+        line
+    };
+    let open = before.rfind("{{")?;
+    let after_open = &line[open + 2..];
+
+    // Find }} after the opening
+    let close = after_open.find("}}")?;
+    let var_name = after_open[..close].trim();
+
+    if var_name.is_empty() {
+        return None;
+    }
+
+    // Strip $ prefix for system variables (not navigable)
+    if var_name.starts_with('$') {
+        return None;
+    }
+
+    Some(var_name.to_string())
+}
+
 pub fn completions_at(
     text: &str,
     position: Position,

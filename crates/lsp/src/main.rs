@@ -49,6 +49,8 @@ impl LanguageServer for RestClientLsp {
                     trigger_characters: Some(vec!["{".to_string()]),
                     ..Default::default()
                 }),
+                definition_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec![
                         handler::SEND_REQUEST_COMMAND.to_string(),
@@ -127,6 +129,34 @@ impl LanguageServer for RestClientLsp {
 
         let lenses = handler::code_lenses(uri, text);
         Ok(Some(lenses))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let location = handler::goto_definition(uri, text, position);
+        Ok(location.map(GotoDefinitionResponse::Scalar))
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let state = self.state.read().await;
+        let text = match state.documents.get(uri) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        Ok(handler::hover_at(text, position, &state.variable_ctx))
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
