@@ -233,13 +233,18 @@ fn resolve_request_variable(expr: &str, ctx: &VariableContext) -> Option<String>
 
     let response = ctx.named_responses.get(request_name)?;
 
+    // Sanitize extracted values to prevent variable injection from server responses.
+    // A malicious server could return {{$processEnv SECRET}} in its response body,
+    // which would be resolved if inserted into a subsequent request.
+    let sanitize = |s: String| -> String { s.replace("{{", "{ {").replace("}}", "} }") };
+
     match section {
         "body" => {
             if parts.len() >= 4 {
                 let path = parts[3];
-                extract_json_path(&response.body, path)
+                extract_json_path(&response.body, path).map(sanitize)
             } else {
-                Some(response.body.clone())
+                Some(sanitize(response.body.clone()))
             }
         }
         "headers" => {
@@ -249,16 +254,16 @@ fn resolve_request_variable(expr: &str, ctx: &VariableContext) -> Option<String>
                     .headers
                     .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case(header_name))
-                    .map(|(_, v)| v.clone())
+                    .map(|(_, v)| sanitize(v.clone()))
             } else {
-                Some(
+                Some(sanitize(
                     response
                         .headers
                         .iter()
                         .map(|(k, v)| format!("{k}: {v}"))
                         .collect::<Vec<_>>()
                         .join("\n"),
-                )
+                ))
             }
         }
         _ => None,

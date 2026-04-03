@@ -125,7 +125,16 @@ pub async fn execute(request: &ParsedRequest, ctx: &VariableContext) -> Result<R
         })
         .collect();
 
+    // Limit response body to 10MB to prevent OOM from malicious servers
+    const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
     let body = resp.text().await.map_err(|e| format!("read body: {e}"))?;
+    if body.len() > MAX_BODY_SIZE {
+        return Err(format!(
+            "response body too large ({} bytes, max {})",
+            body.len(),
+            MAX_BODY_SIZE
+        ));
+    }
 
     Ok(Response {
         status,
